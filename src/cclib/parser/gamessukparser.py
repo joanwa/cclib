@@ -1,14 +1,9 @@
 # -*- coding: utf-8 -*-
 #
-# This file is part of cclib (http://cclib.github.io), a library for parsing
-# and interpreting the results of computational chemistry packages.
+# Copyright (c) 2016, the cclib development team
 #
-# Copyright (C) 2006-2014, the cclib development team
-#
-# The library is free software, distributed under the terms of
-# the GNU Lesser General Public version 2.1 or later. You should have
-# received a copy of the license along with cclib. You can also access
-# the full license online at http://www.gnu.org/copyleft/lgpl.html.
+# This file is part of cclib (http://cclib.github.io) and is distributed under
+# the terms of the BSD 3-Clause License.
 
 """Parser for GAMESS-UK output files"""
 
@@ -335,10 +330,14 @@ class GAMESSUK(logfileparser.Logfile):
             scfvalues = []
             line = next(inputfile)
             while line.strip():
+                # e.g. **** recalulation of fock matrix on iteration  4 (examples/chap12/pyridine.out)
                 if line[2:6] != "****":
-            # e.g. **** recalulation of fock matrix on iteration  4 (examples/chap12/pyridine.out)
                     scfvalues.append([float(line[tester-5:tester+6])])
-                line = next(inputfile)
+                try:
+                    line = next(inputfile)
+                except StopIteration:
+                    self.logger.warning('File terminated before end of last SCF! Last tester: {}'.format(line.split()[5]))
+                    break
             self.scfvalues.append(scfvalues)
 
         if line[10:22] == "total energy" and len(line.split()) == 3:

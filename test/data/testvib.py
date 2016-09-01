@@ -1,17 +1,16 @@
-# This file is part of cclib (http://cclib.github.io), a library for parsing
-# and interpreting the results of computational chemistry packages.
+# -*- coding: utf-8 -*-
 #
-# Copyright (C) 2006,2007,2012,2014,2015, the cclib development team
+# Copyright (c) 2016, the cclib development team
 #
-# The library is free software, distributed under the terms of
-# the GNU Lesser General Public version 2.1 or later. You should have
-# received a copy of the license along with cclib. You can also access
-# the full license online at http://www.gnu.org/copyleft/lgpl.html.
+# This file is part of cclib (http://cclib.github.io) and is distributed under
+# the terms of the BSD 3-Clause License.
 
 """Test logfiles with vibration output in cclib"""
 
 import os
 import unittest
+
+from skip import skipForParser
 
 
 __filedir__ = os.path.realpath(os.path.dirname(__file__))
@@ -33,14 +32,16 @@ class GenericIRTest(unittest.TestCase):
         """Are the lengths of vibfreqs and vibirs (and if present, vibsyms) correct?"""
         numvib = 3*len(self.data.atomnos) - 6
         self.assertEqual(len(self.data.vibfreqs), numvib)
-        self.assertEqual(len(self.data.vibirs), numvib)
-        if hasattr(self.data,'vibsyms'):
+        if hasattr(self.data, 'vibirs'):
+            self.assertEqual(len(self.data.vibirs), numvib)
+        if hasattr(self.data, 'vibsyms'):
             self.assertEqual(len(self.data.vibsyms), numvib)
 
     def testfreqval(self):
         """Is the highest freq value 3630 +/- 200 cm-1?"""
         self.assertAlmostEqual(max(self.data.vibfreqs), 3630, delta=200)
 
+    @skipForParser('Psi', 'Psi cannot print IR intensities')
     def testirintens(self):
         """Is the maximum IR intensity 100 +/- 10 km mol-1?"""
         self.assertAlmostEqual(max(self.data.vibirs), self.max_IR_intensity, delta=10)
@@ -57,10 +58,10 @@ class GaussianIRTest(GenericIRTest):
 
     def testvibsyms(self):
         """Is the length of vibsyms correct?"""
-        numvib = 3*len(self.data.atomnos) - 6        
+        numvib = 3*len(self.data.atomnos) - 6
         self.assertEqual(len(self.data.vibsyms), numvib)
 
-       
+
 class JaguarIRTest(GenericIRTest):
     """Customized vibrational frequency unittest"""
 
@@ -78,7 +79,7 @@ class OrcaIRTest(GenericIRTest):
     # the basis set seems close enough to other programs. It would be nice
     # to determine whether this difference is algorithmic in nature,
     # but in the meanwhile we will expect to parse this value.
-    max_IR_intensity = 215    
+    max_IR_intensity = 215
 
 
 class QChemIRTest(GenericIRTest):
@@ -110,6 +111,17 @@ class QChemIRTest(GenericIRTest):
 
     def testhessian(self):
         """Do the frequencies from the Hessian match the printed frequencies?"""
+
+
+class GamessIRTest(GenericIRTest):
+    """Customized vibrational frequency unittest"""
+    # Molecular mass of DVB in mD.
+    molecularmass = 130078.25
+
+    def testatommasses(self):
+        """Do the atom masses sum up to the molecular mass (130078.25+-0.1mD)?"""
+        mm = 1000*sum(self.data.atommasses)
+        self.assertAlmostEqual(mm, 130078.25, delta=0.1, msg = "Molecule mass: %f not 130078 +- 0.1mD" % mm)
 
 
 class GenericIRimgTest(unittest.TestCase):

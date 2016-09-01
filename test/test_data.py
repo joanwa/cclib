@@ -1,12 +1,9 @@
-# This file is part of cclib (http://cclib.github.io), a library for parsing
-# and interpreting the results of computational chemistry packages.
+# -*- coding: utf-8 -*-
 #
-# Copyright (C) 2015, the cclib development team
+# Copyright (c) 2016, the cclib development team
 #
-# The library is free software, distributed under the terms of
-# the GNU Lesser General Public version 2.1 or later. You should have
-# received a copy of the license along with cclib. You can also access
-# the full license online at http://www.gnu.org/copyleft/lgpl.html.
+# This file is part of cclib (http://cclib.github.io) and is distributed under
+# the terms of the BSD 3-Clause License.
 
 """Run data tests for cclib."""
 
@@ -38,7 +35,7 @@ all_parsers = {name: getattr(cclib.parser, name) for name in parser_names}
 module_names = [
     "SP", "SPun", "GeoOpt", "Basis", "Core",    # Basic calculations.
     "MP", "CC", "CI", "TD", "TDun",             # Post-SCF calculations.
-    "vib", "Scan",                              # Other property calculations.
+    "vib", "Polar", "Scan",                     # Other property calculations.
 ]
 all_modules = {tn: importlib.import_module('data.test' + tn) for tn in module_names}
 
@@ -244,11 +241,12 @@ class DataSuite(object):
             'DALTON2015' : getdatafile('DALTON', "basicDALTON-2015", "dvb_gopt_ks.out")[0],
             'Firefly8.0' : getdatafile('GAMESS', "basicFirefly8.0", "dvb_gopt_a.out")[0],
             'Gaussian09' : getdatafile('Gaussian', "basicGaussian09", "dvb_gopt.out")[0],
-            'GAMESS-US' : getdatafile('GAMESS', "basicGAMESS-US2012", "dvb_gopt_a.out")[0],
+            'GAMESS-US' : getdatafile('GAMESS', "basicGAMESS-US2014", "dvb_gopt_a.out")[0],
             'Jaguar8.0' : getdatafile('Jaguar', "basicJaguar8.3", "dvb_gopt_ks.out")[0],
             'Molpro2012' : getdatafile('Molpro', "basicMolpro2012", "dvb_gopt.log", "dvb_gopt.out")[0],
-            'NWChem6.0' : getdatafile('NWChem', "basicNWChem6.0", "dvb_gopt_ks.out")[0],
+            'NWChem6.5' : getdatafile('NWChem', "basicNWChem6.5", "dvb_gopt_ks.out")[0],
             'ORCA3.0' : getdatafile('ORCA', "basicORCA3.0", "dvb_gopt.out")[0],
+            'Psi4.0' : getdatafile('Psi', "basicPsi4.0", "dvb_gopt_rks.out")[0],
             'QChem4.2' : getdatafile('QChem', "basicQChem4.2", "dvb_gopt.out")[0],
         }
         parser_names = sorted(parsers_to_test.keys())
@@ -258,7 +256,7 @@ class DataSuite(object):
         print("MO energies of optimised dvb", file=self.stream)
         print("      ", "".join(["%-12s" % pn for pn in parser_names]), file=self.stream)
         print("HOMO", "   ".join(["%+9.4f" % out.moenergies[0][out.homos[0]] for out in output]), file=self.stream)
-        print("LUMO", "   ".join(["%+9.4f" % out.moenergies[0][out.homos[0]+1] for out in output]), file=stream)
+        print("LUMO", "   ".join(["%+9.4f" % out.moenergies[0][out.homos[0]+1] for out in output]), file=self.stream)
         print("H-L ", "   ".join(["%9.4f" % (out.moenergies[0][out.homos[0]+1]-out.moenergies[0][out.homos[0]],) for out in output]), file=self.stream)
 
 

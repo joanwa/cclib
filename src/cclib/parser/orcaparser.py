@@ -1,14 +1,9 @@
 # -*- coding: utf-8 -*-
 #
-# This file is part of cclib (http://cclib.github.io), a library for parsing
-# and interpreting the results of computational chemistry packages.
+# Copyright (c) 2016, the cclib development team
 #
-# Copyright (C) 2007-2014, the cclib development team
-#
-# The library is free software, distributed under the terms of
-# the GNU Lesser General Public version 2.1 or later. You should have
-# received a copy of the license along with cclib. You can also access
-# the full license online at http://www.gnu.org/copyleft/lgpl.html.
+# This file is part of cclib (http://cclib.github.io) and is distributed under
+# the terms of the BSD 3-Clause License.
 
 """Parser for ORCA output files"""
 
@@ -28,6 +23,7 @@ class ORCA(logfileparser.Logfile):
 
         # Call the __init__ method of the superclass
         super(ORCA, self).__init__(logname="ORCA", *args, **kwargs)
+
 
     def __str__(self):
         """Return a string representation of the object."""
@@ -62,6 +58,10 @@ class ORCA(logfileparser.Logfile):
     def extract(self, inputfile, line):
         """Extract information from the file object inputfile."""
 
+        #  extract the version number first
+        if "Program Version" in line:
+            self.metadata["package_version"] = line.split()[2]
+
         if line[0:15] == "Number of atoms":
 
             natom = int(line.split()[-1])
@@ -89,11 +89,18 @@ class ORCA(logfileparser.Logfile):
             self.skip_line(inputfile, 'dashes')
 
             line = next(inputfile)
-            colums = line.split()
-            if colums[1] == "Energy":
-                self.parse_scf_condensed_format(inputfile, colums)
-            elif colums[1] == "Starting":
-                self.parse_scf_expanded_format(inputfile, colums)
+            columns = line.split()
+            # "Starting incremental Fock matrix formation" doesn't
+            # necessarily appear before the extended format.
+            if not columns:
+                self.parse_scf_expanded_format(inputfile, columns)
+            # A header with distinct columns indicates the condensed
+            # format.
+            elif columns[1] == "Energy":
+                self.parse_scf_condensed_format(inputfile, columns)
+            # Assume the extended format.
+            else:
+                self.parse_scf_expanded_format(inputfile, columns)
 
         # Information about the final iteration, which also includes the convergence
         # targets and the convergence values, is printed separately, in a section like this:
@@ -128,7 +135,7 @@ class ORCA(logfileparser.Logfile):
 
             while not "Total Energy       :" in line:
                 line = next(inputfile)
-            energy = float(line.split()[5])
+            energy = utils.convertor(float(line.split()[3]), "hartree", "eV")
             self.scfenergies.append(energy)
 
             self._append_scfvalues_scftargets(inputfile, line)
@@ -151,7 +158,7 @@ class ORCA(logfileparser.Logfile):
             if not hasattr(self, "scftargets"):
                 self.scftargets = []
 
-            energy = self.scfvalues[-1][-1][0]
+            energy = utils.convertor(self.scfvalues[-1][-1][0], "hartree", "eV")
             self.scfenergies.append(energy)
 
             self._append_scfvalues_scftargets(inputfile, line)
@@ -284,15 +291,17 @@ class ORCA(logfileparser.Logfile):
                 line = next(inputfile)
 
             # The energy change is normally not printed in the first iteration, because
-            # there was no previous energy -- in that case assume zero, but check that
-            # no previous geovalues were parsed.
+            # there was no previous energy -- in that case assume zero. There are also some
+            # edge cases where the energy change is not printed, for example when internal
+            # angles become improper and internal coordinates are rebuilt as in regression
+            # CuI-MePY2-CH3CN_optxes, and in such cases use NaN.
             newvalues = []
-
             for i, n in enumerate(self.geotargets_names):
                 if (n == "energy change") and (n not in names):
-                    if not self.is_relaxed_scan:
-                        assert len(self.geovalues) == 0
-                    newvalues.append(0.0)
+                    if self.is_relaxed_scan:
+                      newvalues.append(0.0)
+                    else:
+                      newvalues.append(numpy.nan)
                 else:
                     newvalues.append(values[names.index(n)])
                     assert targets[names.index(n)] == self.geotargets[i]
@@ -371,33 +380,53 @@ class ORCA(logfileparser.Logfile):
 
             self.skip_lines(inputfile, ['d', 'text', 'text'])
 
+            self.mooccnos = [[]]
             self.moenergies = [[]]
-            self.homos = [[0]]
 
             line = next(inputfile)
             while len(line) > 20:  # restricted calcs are terminated by ------
                 info = line.split()
-                self.moenergies[0].append(float(info[3]))
-                if float(info[1]) > 0.00:  # might be 1 or 2, depending on restricted-ness
-                    self.homos[0] = int(info[0])
+                mooccno = int(float(info[1]))
+                moenergy = float(info[2])
+                self.mooccnos[0].append(mooccno)
+                self.moenergies[0].append(utils.convertor(moenergy, "hartree", "eV"))
                 line = next(inputfile)
 
             line = next(inputfile)
 
-            #handle beta orbitals
+            # handle beta orbitals for UHF
             if line[17:35] == "SPIN DOWN ORBITALS":
                 text = next(inputfile)
 
+                self.mooccnos.append([])
                 self.moenergies.append([])
-                self.homos.append(0)
 
                 line = next(inputfile)
                 while len(line) > 20:  # actually terminated by ------
                     info = line.split()
-                    self.moenergies[1].append(float(info[3]))
-                    if float(info[1]) == 1.00:
-                        self.homos[1] = int(info[0])
+                    mooccno = int(float(info[1]))
+                    moenergy = float(info[2])
+                    self.mooccnos[1].append(mooccno)
+                    self.moenergies[1].append(utils.convertor(moenergy, "hartree", "eV"))
                     line = next(inputfile)
+
+            if not hasattr(self, 'homos'):
+                doubly_occupied = self.mooccnos[0].count(2)
+                singly_occupied = self.mooccnos[0].count(1)
+                # Restricted closed-shell.
+                if doubly_occupied > 0 and singly_occupied == 0:
+                    self.set_attribute('homos', [doubly_occupied - 1])
+                # Restricted open-shell.
+                elif doubly_occupied > 0 and singly_occupied > 0:
+                    self.set_attribute('homos', [doubly_occupied + singly_occupied - 1,
+                                                 doubly_occupied - 1])
+                # Unrestricted.
+                else:
+                    assert len(self.moenergies) == 2
+                    assert doubly_occupied == 0
+                    assert self.mooccnos[1].count(2) == 0
+                    nbeta = self.mooccnos[1].count(1)
+                    self.set_attribute('homos', [singly_occupied - 1, nbeta - 1])
 
         # So nbasis was parsed at first with the first pattern, but it turns out that
         # semiempirical methods (at least AM1 as reported by Julien Idé) do not use this.
@@ -473,6 +502,56 @@ class ORCA(logfileparser.Logfile):
 
             self.mocoeffs = mocoeffs
 
+        # Basis set information
+        # ORCA prints this out in a somewhat indirect fashion.
+        # Therefore, parsing occurs in several steps:
+        # 1. read which atom belongs to which basis set group
+        if line[0:21] == "BASIS SET INFORMATION":
+            line = next(inputfile)
+            line = next(inputfile)
+
+            self.tmp_atnames = [] # temporary attribute, needed later
+            while(not line[0:5] == '-----'):
+                if line[0:4] == "Atom":
+                    self.tmp_atnames.append(line[8:12].strip())
+                line = next(inputfile)
+
+        # 2. Read information for the basis set groups
+        if line[0:25] == "BASIS SET IN INPUT FORMAT":
+            line = next(inputfile)
+            line = next(inputfile)
+
+            # loop over basis set groups
+            gbasis_tmp = {}
+            while(not line[0:5] == '-----'):
+                if line[1:7] == 'NewGTO':
+                    bas_atname = line.split()[1]
+                    gbasis_tmp[bas_atname] = []
+
+                    line = next(inputfile)
+                    # loop over contracted GTOs
+                    while(not line[0:6] == '  end;'):
+                        words = line.split()
+                        ang = words[0]
+                        nprim = int(words[1])
+
+                        # loop over primitives
+                        coeff = []
+                        for iprim in range(nprim):
+                            words = next(inputfile).split()
+                            coeff.append( (float(words[1]), float(words[2])) )
+                        gbasis_tmp[bas_atname].append((ang, coeff))
+
+                        line = next(inputfile)
+                line = next(inputfile)
+
+            # 3. Assign the basis sets to gbasis
+            self.gbasis = []
+            for bas_atname in self.tmp_atnames:
+                self.gbasis.append(gbasis_tmp[bas_atname])
+            del self.tmp_atnames
+
+        # Read TDDFT information
         if line[0:18] == "TD-DFT/TDA EXCITED":
             # Could be singlets or triplets
             if line.find("SINGLETS") >= 0:
@@ -707,6 +786,19 @@ class ORCA(logfileparser.Logfile):
                     self.logger.warning('Overwriting previous multipole moments with new values')
                     self.moments = [reference, dipole]
 
+        # Static polarizability.
+        if line.strip() == "THE POLARIZABILITY TENSOR":
+            if not hasattr(self, 'polarizabilities'):
+                self.polarizabilities = []
+            self.skip_lines(inputfile, ['d', 'b'])
+            line = next(inputfile)
+            assert line.strip() == "The raw cartesian tensor (atomic units):"
+            polarizability = []
+            for _ in range(3):
+                line = next(inputfile)
+                polarizability.append(line.split())
+            self.polarizabilities.append(numpy.array(polarizability))
+
     def parse_scf_condensed_format(self, inputfile, line):
         """ Parse the SCF convergence information in condensed format """
 
@@ -753,7 +845,11 @@ class ORCA(logfileparser.Logfile):
                 maxDP = float(line[5])
                 rmsDP = float(line[6])
                 self.scfvalues[-1].append([deltaE, maxDP, rmsDP])
-            line = next(inputfile).split()
+            try:
+                line = next(inputfile).split()
+            except StopIteration:
+                self.logger.warning('File terminated before end of last SCF! Last Max-DP: {}'.format(maxDP))
+                break
 
     def parse_scf_expanded_format(self, inputfile, line):
         """ Parse SCF convergence when in expanded format. """
@@ -804,7 +900,11 @@ class ORCA(logfileparser.Logfile):
 
         line = "Foo"  # dummy argument to enter loop
         while line.find("******") < 0:
-            line = next(inputfile)
+            try:
+                line = next(inputfile)
+            except StopIteration:
+                self.logger.warning('File terminated before end of last SCF!')
+                break
             info = line.split()
             if len(info) > 1 and info[1] == "ITERATION":
                 dashes = next(inputfile)

@@ -1,15 +1,9 @@
 # -*- coding: utf-8 -*-
 #
-# This file is part of cclib (http://cclib.github.io), a library for parsing
-# and interpreting the results of computational chemistry packages.
+# Copyright (c) 2016, the cclib development team
 #
-# Copyright (C) 2006-2014, the cclib development team
-#
-# The library is free software, distributed under the terms of
-# the GNU Lesser General Public version 2.1 or later. You should have
-# received a copy of the license along with cclib. You can also access
-# the full license online at http://www.gnu.org/copyleft/lgpl.html.
-
+# This file is part of cclib (http://cclib.github.io) and is distributed under
+# the terms of the BSD 3-Clause License.
 """Generic output file parser and related tools"""
 
 
@@ -79,23 +73,22 @@ class FileWrapper(object):
         # by urllib.urlopen in Python2 do not, which will raise an AttributeError
         # in this code. On the other hand, in Python3 these methods do exist since
         # urllib uses the stream class in the io library, but they raise a different
-        # error, namely is.UnsupportedOperation. That is why it is hard to be more
+        # error, namely io.UnsupportedOperation. That is why it is hard to be more
         # specific with except block here.
         try:
-
             self.src.seek(0, 2)
             self.size = self.src.tell()
             self.src.seek(pos, 0)
-            self.pos = pos
 
-        except:
-
+        except (AttributeError, IOError, io.UnsupportedOperation):
             # Stream returned by urllib should have size information.
             if hasattr(self.src, 'headers') and 'content-length' in self.src.headers:
                 self.size = int(self.src.headers['content-length'])
+            else:
+                self.size = pos
 
-            # Assume the position is what was passed to the constructor.
-            self.pos = pos
+        # Assume the position is what was passed to the constructor.
+        self.pos = pos
 
     def next(self):
         line = next(self.src)
@@ -184,8 +177,8 @@ class Logfile(object):
     """Abstract class for logfile objects.
 
     Subclasses defined by cclib:
-        ADF, DALTON, GAMESS, GAMESSUK, Gaussian, Jaguar, Molpro, NWChem, ORCA,
-          Psi, QChem
+        ADF, DALTON, GAMESS, GAMESSUK, Gaussian, Jaguar, Molpro, MOPAC,
+        NWChem, ORCA, Psi, Q-Chem
     """
 
     def __init__(self, source, loglevel=logging.INFO, logname="Log",
@@ -230,6 +223,13 @@ class Logfile(object):
             handler = logging.StreamHandler(logstream)
             handler.setFormatter(logging.Formatter("[%(name)s %(levelname)s] %(message)s"))
             self.logger.addHandler(handler)
+
+        # Set up the metadata.
+        if not hasattr(self, "metadata"):
+            self.metadata = {}
+            self.metadata["package"] = self.logname
+            self.metadata["methods"] = []
+
 
         # Periodic table of elements.
         self.table = utils.PeriodicTable()
@@ -299,7 +299,6 @@ class Logfile(object):
         # Loop over lines in the file object and call extract().
         # This is where the actual parsing is done.
         for line in inputfile:
-
             self.updateprogress(inputfile, "Unsupported information", cupdate)
 
             # This call should check if the line begins a section of extracted data.

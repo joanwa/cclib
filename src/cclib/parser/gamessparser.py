@@ -1,14 +1,9 @@
 # -*- coding: utf-8 -*-
 #
-# This file is part of cclib (http://cclib.github.io), a library for parsing
-# and interpreting the results of computational chemistry packages.
+# Copyright (c) 2016, the cclib development team
 #
-# Copyright (C) 2006-2014, the cclib development team
-#
-# The library is free software, distributed under the terms of
-# the GNU Lesser General Public version 2.1 or later. You should have
-# received a copy of the license along with cclib. You can also access
-# the full license online at http://www.gnu.org/copyleft/lgpl.html.
+# This file is part of cclib (http://cclib.github.io) and is distributed under
+# the terms of the BSD 3-Clause License.
 
 """Parser for GAMESS(US) output files"""
 
@@ -28,6 +23,28 @@ class GAMESS(logfileparser.Logfile):
 
     # Used to index self.scftargets[].
     SCFRMS, SCFMAX, SCFENERGY = list(range(3))
+
+    # Used to extact Dunning basis set names.
+    dunningbas = {'CCD': 'cc-pVDZ', \
+            'CCT': 'cc-pVTZ', \
+            'CCQ': 'cc-pVQZ', \
+            'CC5': 'cc-pV5Z', \
+            'CC6': 'cc-pV6Z', \
+            'ACCD': 'aug-cc-pVDZ', \
+            'ACCT': 'aug-cc-pVTZ', \
+            'ACCQ': 'aug-cc-pVQZ', \
+            'ACC5': 'aug-cc-pV5Z', \
+            'ACC6': 'aug-cc-pV6Z', \
+            'CCDC': 'cc-pCVDZ', \
+            'CCTC': 'cc-pCVTZ', \
+            'CCQC': 'cc-pCVQZ', \
+            'CC5C': 'cc-pCV5Z', \
+            'CC6C': 'cc-pCV6Z', \
+            'ACCDC': 'aug-cc-pCVDZ', \
+            'ACCTC': 'aug-cc-pCVTZ', \
+            'ACCQC': 'aug-cc-pCVQZ', \
+            'ACC5C': 'aug-cc-pCV5Z', \
+            'ACC6C': 'aug-cc-pCV6Z'}
 
     def __init__(self, *args, **kwargs):
 
@@ -71,9 +88,85 @@ class GAMESS(logfileparser.Logfile):
 
     def extract(self, inputfile, line):
         """Extract information from the file object inputfile."""
+        
+        # extract the version number first
+        if line.find("GAMESS VERSION") >= 0:
+            self.metadata["package_version"] = line.split()[4] + line.split()[5] + line.split()[6]
 
         if line[1:12] == "INPUT CARD>":
             return
+
+        # extract the methods 
+        if line[1:7] == "SCFTYP":
+            method = line.split()[0][7:]
+            if len(self.metadata["methods"]) == 0:
+                self.metadata["methods"].append(method)
+
+        # extract the basis set name
+        if line[5:11] == "GBASIS":
+            basnm1 = line.split()[0][7:]
+            if basnm1 in self.dunningbas:
+                self.metadata["basis_set"] = self.dunningbas[basnm1]
+            else:
+                if basnm1 == "PM3" or basnm1 == "AM1":
+                    self.metadata["methods"].append(basnm1)
+                if basnm1 == "STO" :
+                    if line.split()[2] == "2":
+                        self.metadata["basis_set"] = "STO-2G"
+                    elif line.split()[2] == "3":
+                        self.metadata["basis_set"] = "STO-3G"
+                    elif line.split()[2] == "4":
+                        self.metadata["basis_set"] = "STO-4G"
+                    elif line.split()[2] == "5":
+                        self.metadata["basis_set"] = "STO-5G"
+                if basnm1 == "N21" :
+                    if line.split()[2] == "3" and line.split()[3] == "POLAR=COMMON":
+                        self.metadata["basis_set"] = "3-21G*"
+                    if line.split()[2] == "3" and line.split()[3] == "POLAR=NONE":
+                        self.metadata["basis_set"] = "3-21G"
+                    if line.split()[2] == "4" and line.split()[3] == "POLAR=NONE":
+                        self.metadata["basis_set"] = "4-21G"
+                    if line.split()[2] == "6" and line.split()[3] == "POLAR=NONE":
+                        self.metadata["basis_set"] = "6-21G"
+                if basnm1 == "N31" :
+                    if line.split()[2] == "6" and (line.split()[3] == "POLAR=POPN31" \
+                            or line.split()[3] == "POLAR=POPLE"):
+                        self.metadata["basis_set"] = "6-31G*"
+                        line = next(inputfile)
+                        if line.split()[-1] == "T":
+                            self.metadata["basis_set"] = "6-31+G*"
+                            line = next(inputfile)
+                            if line.split()[1] == "0" and line.split()[3] == "T":
+                                self.metadata["basis_set"] = "6-31++G*"
+                            if line.split()[1] == "1" and line.split()[3] == "T":
+                                self.metadata["basis_set"] = "6-31++G**"
+                        else:
+                            line = next(inputfile)
+                            if line.split()[1] == "1":  #NPFUNC = 1
+                                self.metadata["basis_set"] = "6-31G**"
+                    if line.split()[2] == "6" and line.split()[3] == "POLAR=NONE":
+                        self.metadata["basis_set"] = "6-31G"
+                    if line.split()[2] == "4" and line.split()[3] == "POLAR=NONE":
+                        self.metadata["basis_set"] = "4-31G"
+                    if line.split()[2] == "4" and line.split()[3] == "POLAR=POPN31":
+                        self.metadata["basis_set"] = "4-31G*"
+                if basnm1 == "N311" :
+                    if line.split()[2] == "6" and line.split()[3] == "POLAR=POPN311":
+                        self.metadata["basis_set"] = "6-311G*"
+                        line = next(inputfile)
+                        if line.split()[-1] == "T":
+                            self.metadata["basis_set"] = "6-311+G*"
+                            line = next(inputfile)
+                            if line.split()[1] == "0" and line.split()[3] == "T":
+                                self.metadata["basis_set"] = "6-311++G*"
+                            if line.split()[1] == "1" and line.split()[3] == "T":
+                                self.metadata["basis_set"] = "6-311++G**"
+                        else:
+                            line = next(inputfile)
+                            if line.split()[1] == "1":  #NPFUNC = 1
+                                self.metadata["basis_set"] = "6-311G**"
+                    if line.split()[2] == "6" and line.split()[3] == "POLAR=NONE":
+                        self.metadata["basis_set"] = "6-311G"
 
         # We are looking for this line:
         #           PARAMETERS CONTROLLING GEOMETRY SEARCH ARE
@@ -127,6 +220,7 @@ class GAMESS(logfileparser.Logfile):
                 if len(line.split()) > 0:
                     # Only up to MP2 correction
                     if line.split()[0] == "E(MP2)=":
+                        self.metadata["methods"].append("MP2")
                         mp2energy = float(line.split()[1])
                         self.mpenergies[-1].append(utils.convertor(mp2energy, "hartree", "eV"))
                     # MP2 before higher order calculations
@@ -134,28 +228,34 @@ class GAMESS(logfileparser.Logfile):
                         mp2energy = float(line.split()[2])
                         self.mpenergies[-1].append(utils.convertor(mp2energy, "hartree", "eV"))
                     if line.split()[0] == "E(MP3)":
+                        self.metadata["methods"].append("MP3")
                         mp3energy = float(line.split()[2])
                         self.mpenergies[-1].append(utils.convertor(mp3energy, "hartree", "eV"))
                     if line.split()[0] in ["E(MP4-SDQ)", "E(MP4-SDTQ)"]:
+                        self.metadata["methods"].append("MP4")
                         mp4energy = float(line.split()[2])
                         self.mpenergies[-1].append(utils.convertor(mp4energy, "hartree", "eV"))
 
         # Total energies after Coupled Cluster calculations
         # Only the highest Coupled Cluster level result is gathered
         if line[12:23] == "CCD ENERGY:":
+            self.metadata["methods"].append("CCD")
             if not hasattr(self, "ccenergies"):
                 self.ccenergies = []
             ccenergy = float(line.split()[2])
             self.ccenergies.append(utils.convertor(ccenergy, "hartree", "eV"))
         if line.find("CCSD") >= 0 and line.split()[0:2] == ["CCSD", "ENERGY:"]:
+            self.metadata["methods"].append("CCSD")
             if not hasattr(self, "ccenergies"):
                 self.ccenergies = []
             ccenergy = float(line.split()[2])
             line = next(inputfile)
             if line[8:23] == "CCSD[T] ENERGY:":
+                self.metadata["methods"].append("CCSD[T]")
                 ccenergy = float(line.split()[2])
                 line = next(inputfile)
                 if line[8:23] == "CCSD(T) ENERGY:":
+                    self.metadata["methods"].append("CCSD(T)")
                     ccenergy = float(line.split()[2])
             self.ccenergies.append(utils.convertor(ccenergy, "hartree", "eV"))
 
@@ -547,7 +647,11 @@ class GAMESS(logfileparser.Logfile):
                     pass
                 else:
                     values.append([float(line.split()[self.scf_valcol])])
-                line = next(inputfile)
+                try:
+                    line = next(inputfile)
+                except StopIteration:
+                    self.logger.warning('File terminated before end of last SCF!')
+                    break
             self.scfvalues.append(values)
 
         # Sometimes, only the first SCF cycle has the banner parsed for above,
@@ -647,6 +751,24 @@ class GAMESS(logfileparser.Logfile):
                 self.updateprogress(inputfile, "Frequency Information")
 
                 line = next(inputfile)
+
+                # Typical Atomic Masses section printed in GAMESS
+                #               ATOMIC WEIGHTS (AMU)
+                #
+                # 1     O                15.99491
+                # 2     H                 1.00782
+                # 3     H                 1.00782
+                if "ATOMIC WEIGHTS" in line:
+                    atommasses = []
+                    self.skip_line(inputfile,['b'])
+                    # There is a blank line after ATOMIC WEIGHTS
+                    line = next(inputfile)
+                    while line.strip():
+                        temp = line.strip().split()
+                        atommasses.append(float(temp[2]))
+                        line = next(inputfile)
+                    self.set_attribute('atommasses', atommasses)
+
                 if "THIS IS NOT A STATIONARY POINT" in line:
                     msg = "\n   This is not a stationary point on the molecular PES"
                     msg += "\n   The vibrational analysis is not valid!!!"
@@ -863,7 +985,6 @@ class GAMESS(logfileparser.Logfile):
             self.skip_line(inputfile, 'dashes')
 
             for base in range(0, self.nmo, 5):
-
                 self.updateprogress(inputfile, "Coefficients")
 
                 line = next(inputfile)
@@ -875,9 +996,25 @@ class GAMESS(logfileparser.Logfile):
 
                 numbers = next(inputfile)  # Eigenvector numbers.
 
+                # This is for regression CdtetraM1B3LYP.
+                if "ALPHA SET" in numbers:
+                    blank = next(inputfile)
+                    numbers = next(inputfile)
+
+                # If not all coefficients are printed, the logfile will go right to
+                # the beta section if there is one, so break out in that case.
+                if "BETA SET" in numbers:
+                    line = numbers
+                    break
+
                 # Sometimes there are some blank lines here.
                 while not line.strip():
                     line = next(inputfile)
+
+                # Geometry optimizations don't have END OF RHF/DFT
+                # CALCULATION, they head right into the next section.
+                if "--------" in line:
+                    break
 
                 # Eigenvalues for these orbitals (in hartrees).
                 try:
@@ -941,12 +1078,9 @@ class GAMESS(logfileparser.Logfile):
 
                     coeffs = line[15:]  # Strip off the crud at the start.
                     j = 0
-
                     while j*11+4 < len(coeffs):
                         self.mocoeffs[0][base+j, i] = float(coeffs[j * 11:(j + 1) * 11])
                         j += 1
-
-            line = next(inputfile)
 
             # If it's a restricted calc and no more properties, we have:
             #
@@ -966,7 +1100,9 @@ class GAMESS(logfileparser.Logfile):
             #                      1          2          3          4          5
             # ...
             #
-            line = next(inputfile)
+            if "BETA SET" not in line:
+                line = next(inputfile)
+                line = next(inputfile)
 
             # This can come in between the alpha and beta orbitals (see #130).
             if line.strip() == "LZ VALUE ANALYSIS FOR THE MOS":
@@ -974,18 +1110,27 @@ class GAMESS(logfileparser.Logfile):
                     line = next(inputfile)
                 line = next(inputfile)
 
-            if line[2:22] == "----- BETA SET -----":
+            # Covers label with both dashes and stars (like regression CdtetraM1B3LYP).
+            if "BETA SET" in line:
                 self.mocoeffs.append(numpy.zeros((self.nmo, self.nbasis), "d"))
                 self.moenergies.append([])
                 self.mosyms.append([])
-                for i in range(4):
+                blank = next(inputfile)
+                line = next(inputfile)
+
+                # Sometimes EIGENVECTORS is missing, so rely on dashes to signal it.
+                if set(line.strip()) == {'-'}:
+                    self.skip_lines(inputfile, ['EIGENVECTORS', 'd', 'b'])
                     line = next(inputfile)
+
                 for base in range(0, self.nmo, 5):
                     self.updateprogress(inputfile, "Coefficients")
-
-                    blank = next(inputfile)
-                    line = next(inputfile)  # Eigenvector no
+                    if base != 0:
+                        line = next(inputfile)
+                        line = next(inputfile)
                     line = next(inputfile)
+                    if "properties" in line.lower():
+                        break
                     self.moenergies[1].extend([utils.convertor(float(x), "hartree", "eV") for x in line.split()])
                     line = next(inputfile)
                     self.mosyms[1].extend(list(map(self.normalisesym, line.split())))
@@ -1248,6 +1393,40 @@ class GAMESS(logfileparser.Logfile):
                     self.logger.warning('Overwriting previous multipole moments with new values')
                     self.logger.warning('This could be from post-HF properties or geometry optimization')
                     self.moments = [reference, dipole]
+
+        # Static polarizability from a harmonic frequency calculation
+        # with $CPHF/POLAR=.TRUE.
+        if line.strip() == 'ALPHA POLARIZABILITY TENSOR (ANGSTROMS**3)':
+            if not hasattr(self, 'polarizabilities'):
+                self.polarizabilities = []
+            polarizability = numpy.zeros(shape=(3, 3))
+            self.skip_lines(inputfile, ['d', 'b', 'directions'])
+            for i in range(3):
+                line = next(inputfile)
+                polarizability[i, :i+1] = [float(x) for x in line.split()[1:]]
+            polarizability = utils.symmetrize(polarizability, use_triangle='lower')
+            # Convert from Angstrom**3 to bohr**3 (a.u.**3).
+            volume_convert = numpy.vectorize(lambda x: x * utils.convertor(1, 'Angstrom', 'bohr') ** 3)
+            polarizability = volume_convert(polarizability)
+            self.polarizabilities.append(polarizability)
+
+        # Static and dynamic polarizability from RUNTYP=TDHF.
+        if line.strip() == 'TIME-DEPENDENT HARTREE-FOCK NLO PROPERTIES':
+            if not hasattr(self, 'polarizabilities'):
+                self.polarizabilities = []
+            polarizability = numpy.empty(shape=(3, 3))
+            coord_to_idx = {'X': 0, 'Y': 1, 'Z': 2}
+            self.skip_lines(inputfile, ['d', 'b', 'dots'])
+            line = next(inputfile)
+            assert 'ALPHA AT' in line
+            self.skip_lines(inputfile, ['dots', 'b'])
+            for a in range(3):
+                for b in range(3):
+                    line = next(inputfile)
+                    tokens = line.split()
+                    i, j = coord_to_idx[tokens[1][0]], coord_to_idx[tokens[1][1]]
+                    polarizability[i, j] = tokens[3]
+            self.polarizabilities.append(polarizability)
 
 
 if __name__ == "__main__":
